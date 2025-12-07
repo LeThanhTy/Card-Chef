@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { CardStack, GameCard } from '../types';
 import { CARDS } from '../constants';
@@ -60,7 +59,7 @@ interface Props {
 export const CardStackComponent: React.FC<Props> = ({ stack, onPointerDown }) => {
   return (
     <div
-      className="absolute touch-none select-none transition-transform duration-75"
+      className="absolute touch-none select-none transition-transform duration-75 pointer-events-auto"
       style={{
         left: stack.x,
         top: stack.y,
@@ -77,7 +76,8 @@ export const CardStackComponent: React.FC<Props> = ({ stack, onPointerDown }) =>
         const Icon = ICON_MAP[def.iconName] || HelpCircle;
         
         // Visual stacking effect
-        const offsetY = index * -25; // Stack upwards visually
+        // Compact visual offset for responsiveness
+        const offsetY = index * -22; 
         const zIndex = index;
 
         return (
@@ -85,8 +85,11 @@ export const CardStackComponent: React.FC<Props> = ({ stack, onPointerDown }) =>
             key={card.instanceId}
             onPointerDown={(e) => onPointerDown(e, stack.id, index)}
             className={`
-              absolute w-24 h-32 rounded-xl border-2 border-gray-800 shadow-lg 
-              flex flex-col items-center justify-between p-2
+              absolute 
+              w-20 h-28 md:w-24 md:h-32 
+              rounded-xl border-2 border-gray-800 shadow-lg 
+              flex flex-col items-center justify-between 
+              p-1.5 md:p-2
               ${def.color} ${index === stack.cards.length - 1 ? 'brightness-110' : 'brightness-90'}
               hover:brightness-125 transition-all
             `}
@@ -98,15 +101,15 @@ export const CardStackComponent: React.FC<Props> = ({ stack, onPointerDown }) =>
             }}
           >
             {/* Card Content */}
-            <div className="w-full text-[10px] font-black text-center uppercase tracking-tighter opacity-80 truncate text-slate-900">
+            <div className="w-full text-[9px] md:text-[10px] font-black text-center uppercase tracking-tighter opacity-80 truncate text-slate-900">
               {def.type}
             </div>
             
-            <div className="bg-white p-2 rounded-full shadow-md border-2 border-slate-900/10">
-               <Icon size={24} className="text-gray-800" />
+            <div className="bg-white p-1.5 md:p-2 rounded-full shadow-md border-2 border-slate-900/10 shrink-0">
+               <Icon className="w-5 h-5 md:w-6 md:h-6 text-gray-800" />
             </div>
 
-            <div className="w-full text-xs font-bold text-center leading-tight bg-white rounded py-1 text-black border border-slate-900/10 truncate shadow-sm">
+            <div className="w-full text-[10px] md:text-xs font-bold text-center leading-tight bg-white rounded py-0.5 md:py-1 text-black border border-slate-900/10 shadow-sm min-h-[1.5em] flex items-center justify-center whitespace-normal break-words px-0.5">
               {def.name}
             </div>
           </div>

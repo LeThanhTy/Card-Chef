@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ShoppingBag, BookOpen, Star, ChefHat, Coins, User, Hammer, X, Clock, Receipt, Trash2, ArrowRight, XCircle, Leaf, Drumstick } from 'lucide-react';
+import { ShoppingBag, BookOpen, Star, ChefHat, Coins, User, Hammer, X, Clock, Receipt, Trash2, ArrowRight, XCircle, Leaf, Drumstick, Bookmark, ZoomIn, ZoomOut } from 'lucide-react';
 import { 
   GameState, CardStack, GameCard, CardType, Recipe, Customer, CardCategory 
 } from './types';
@@ -60,8 +60,9 @@ export default function App() {
   const [isRecipeBookOpen, setIsRecipeBookOpen] = useState(false);
   const [isToolShopOpen, setIsToolShopOpen] = useState(false);
   
-  // Camera Pan State
+  // Camera Pan & Zoom State
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
   
   // UI Refs for drop zones
   const sellBinRef = useRef<HTMLDivElement>(null);
@@ -69,8 +70,8 @@ export default function App() {
   const dragRef = useRef<{
     activeId: string | null;
     isPanning: boolean;
-    offsetX: number;
-    offsetY: number;
+    offsetX: number; // Stored in World Units
+    offsetY: number; // Stored in World Units
     panStartX: number;
     panStartY: number;
     initialPanX: number;
@@ -85,6 +86,10 @@ export default function App() {
       initialPanX: 0,
       initialPanY: 0
   });
+
+  // --- Zoom Controls ---
+  const handleZoomIn = () => setZoom(prev => Math.min(prev + 0.1, 2.0));
+  const handleZoomOut = () => setZoom(prev => Math.max(prev - 0.1, 0.5));
 
   // --- Game Loop ---
   useEffect(() => {
@@ -130,15 +135,16 @@ export default function App() {
   // --- Logic: Spawn Free Tools on Level Up ---
   const spawnToolsForLevel = (level: number): CardStack[] => {
       const newStacks: CardStack[] = [];
-      // Spawn relative to current view center (Screen Center - Pan Offset)
-      const cx = (window.innerWidth / 2) - pan.x;
-      const cy = (window.innerHeight / 2) - pan.y;
+      // Spawn relative to current view center (Screen Center -> World Center)
+      // World = (Screen - Pan) / Zoom
+      const worldCx = ((window.innerWidth / 2) - pan.x) / zoom;
+      const worldCy = ((window.innerHeight / 2) - pan.y) / zoom;
 
       const spawnTool = (toolId: string, offsetX: number, offsetY: number) => {
           newStacks.push({
               id: generateId(), 
-              x: cx + offsetX, 
-              y: cy + offsetY, 
+              x: worldCx + offsetX, 
+              y: worldCy + offsetY, 
               rotation: Math.random() * 10 - 5,
               cards: [{ instanceId: generateId(), defId: toolId }],
               isDragging: false
@@ -209,16 +215,20 @@ export default function App() {
       }
       newStacksList.push(draggingStack);
       
-      // Calculate offset relative to the visual position (which includes pan)
-      // Visual Position = World Position + Pan
-      const visualX = draggingStack.x + pan.x;
-      const visualY = draggingStack.y + pan.y;
+      // Calculate offset in World Coordinates
+      // World Mouse = (Screen Mouse - Pan) / Zoom
+      const worldMouseX = (e.clientX - pan.x) / zoom;
+      const worldMouseY = (e.clientY - pan.y) / zoom;
+
+      // Offset = World Mouse - Stack Position
+      const offsetX = worldMouseX - draggingStack.x;
+      const offsetY = worldMouseY - draggingStack.y;
 
       dragRef.current = {
         ...dragRef.current,
         activeId: draggingStack.id,
-        offsetX: e.clientX - visualX,
-        offsetY: e.clientY - visualY,
+        offsetX, // Stored in World Units
+        offsetY, // Stored in World Units
         isPanning: false
       };
       return { ...prev, stacks: newStacksList };
@@ -226,7 +236,7 @@ export default function App() {
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    // 1. Panning Logic
+    // 1. Panning Logic (Moves the "Camera", operates in Screen Space)
     if (dragRef.current.isPanning) {
         e.preventDefault();
         const dx = e.clientX - dragRef.current.panStartX;
@@ -238,19 +248,23 @@ export default function App() {
         return;
     }
 
-    // 2. Dragging Logic
+    // 2. Dragging Logic (Moves the Card in World Space)
     if (dragRef.current.activeId) {
         e.preventDefault();
         const { activeId, offsetX, offsetY } = dragRef.current;
         
-        // Convert screen coordinates back to world coordinates
-        // Screen = World + Pan  ->  World = Screen - Pan
-        const worldX = (e.clientX - offsetX) - pan.x;
-        const worldY = (e.clientY - offsetY) - pan.y;
+        // Calculate new World Position
+        // World Mouse = (Screen Mouse - Pan) / Zoom
+        const worldMouseX = (e.clientX - pan.x) / zoom;
+        const worldMouseY = (e.clientY - pan.y) / zoom;
+
+        // New Stack Pos = World Mouse - Initial Offset
+        const newStackX = worldMouseX - offsetX;
+        const newStackY = worldMouseY - offsetY;
 
         setGameState(prev => ({
         ...prev,
-        stacks: prev.stacks.map(s => s.id === activeId ? { ...s, x: worldX, y: worldY } : s)
+        stacks: prev.stacks.map(s => s.id === activeId ? { ...s, x: newStackX, y: newStackY } : s)
         }));
     }
   };
@@ -274,12 +288,15 @@ export default function App() {
       // --- 1. Check Sell Bin Collision (Screen Coordinates) ---
       if (sellBinRef.current) {
           const binRect = sellBinRef.current.getBoundingClientRect();
-          // Visual position of the stack
-          const stackVisualX = activeStack.x + pan.x + 48; 
-          const stackVisualY = activeStack.y + pan.y + 64; 
+          
+          // Project Stack Position to Screen Space
+          // Screen = (World * Zoom) + Pan
+          // Add some offset for center of card (approx 48x64)
+          const stackScreenX = (activeStack.x * zoom) + pan.x + (48 * zoom); 
+          const stackScreenY = (activeStack.y * zoom) + pan.y + (64 * zoom); 
 
-          if (stackVisualX >= binRect.left && stackVisualX <= binRect.right &&
-              stackVisualY >= binRect.top && stackVisualY <= binRect.bottom) {
+          if (stackScreenX >= binRect.left && stackScreenX <= binRect.right &&
+              stackScreenY >= binRect.top && stackScreenY <= binRect.bottom) {
               
               // Check if stack contains tools
               const hasTools = activeStack.cards.some(c => CARDS[c.defId].type === CardType.TOOL);
@@ -306,7 +323,7 @@ export default function App() {
       // --- 2. Check Stack Merge Collision (World Coordinates) ---
       let targetStack: CardStack | null = null;
       for (const s of stacksWithoutActive) {
-        // Distance check in world space (pan irrelevant as both are in world space)
+        // Distance check in world space (consistent regardless of zoom)
         if (Math.hypot(s.x - activeStack.x, s.y - activeStack.y) < 60) {
           targetStack = s;
           break;
@@ -411,9 +428,9 @@ export default function App() {
     }
 
     const newStacks: CardStack[] = [];
-    // Spawn in Center of View
-    const cx = (window.innerWidth / 2) - pan.x;
-    const cy = (window.innerHeight / 2) - pan.y;
+    // Spawn in Center of View (World Coordinates)
+    const worldCx = ((window.innerWidth / 2) - pan.x) / zoom;
+    const worldCy = ((window.innerHeight / 2) - pan.y) / zoom;
 
     const cardsToSpawn: string[] = [];
     let attempts = 0;
@@ -438,8 +455,8 @@ export default function App() {
         const angle = Math.random() * Math.PI * 2;
         const radius = 60 + Math.random() * 100;
 
-        const rawX = cx + Math.cos(angle) * radius;
-        const rawY = cy + Math.sin(angle) * radius;
+        const rawX = worldCx + Math.cos(angle) * radius;
+        const rawY = worldCy + Math.sin(angle) * radius;
         
         newStacks.push({
             id: generateId(), x: rawX, y: rawY, rotation: (Math.random() * 50) - 25,
@@ -463,10 +480,13 @@ export default function App() {
       setGameState(prev => ({ ...prev, notification: "Too expensive!" }));
       return;
     }
+    const worldCx = ((window.innerWidth / 2) - pan.x) / zoom;
+    const worldCy = ((window.innerHeight / 2) - pan.y) / zoom;
+    
     const newStack: CardStack = {
       id: generateId(),
-      x: (window.innerWidth / 2) - 48 - pan.x + (Math.random() * 40 - 20),
-      y: (window.innerHeight / 2) - 64 - pan.y + (Math.random() * 40 - 20),
+      x: worldCx - 48 + (Math.random() * 40 - 20),
+      y: worldCy - 64 + (Math.random() * 40 - 20),
       rotation: 0,
       cards: [{ instanceId: generateId(), defId: toolId }],
       isDragging: false
@@ -487,7 +507,7 @@ export default function App() {
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerUp}
     >
-        {/* Kitchen Tile Background - Moves with Pan */}
+        {/* Kitchen Tile Background - Moves with Pan and Scales with Zoom */}
         <div 
             className="absolute inset-0 pointer-events-none"
             style={{
@@ -499,7 +519,7 @@ export default function App() {
                         #ffffff 270deg
                     )
                 `,
-                backgroundSize: '100px 100px',
+                backgroundSize: `${100 * zoom}px ${100 * zoom}px`,
                 backgroundPosition: `${pan.x}px ${pan.y}px`
             }}
         ></div>
@@ -546,8 +566,8 @@ export default function App() {
                 {gameState.customers.map((customer, i) => {
                     return (
                         <div key={customer.id} 
-                                className="relative flex-shrink-0 bg-white w-32 sm:w-40 md:w-48 p-2 md:p-3 shadow-xl transform transition-transform hover:scale-[1.02] origin-top border border-gray-200 flex flex-col gap-2 rounded-sm group"
-                                style={{ minHeight: '130px' }}
+                                className="relative flex-shrink-0 bg-[#fff9c4] w-32 sm:w-40 md:w-48 p-3 shadow-xl transform transition-transform hover:scale-[1.02] origin-top border border-yellow-200 flex flex-col gap-2 rounded-sm group"
+                                style={{ minHeight: '120px' }}
                         >
                                 {/* Tape / Pin */}
                                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-red-500 border border-red-700 shadow-sm z-10"></div>
@@ -565,8 +585,8 @@ export default function App() {
                                 </button>
                                 
                                 {/* Header */}
-                                <div className="border-b-2 border-dotted border-gray-300 pb-1 mb-1 flex items-center justify-between">
-                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">TICKET #{customer.id.substr(0,3)}</span>
+                                <div className="border-b border-yellow-300 pb-1 mb-1 flex items-center justify-between">
+                                    <span className="text-[10px] font-bold text-yellow-800 uppercase tracking-wider">ORDER #{customer.id.substr(0,3)}</span>
                                 </div>
                                 
                                 {/* Order List */}
@@ -575,35 +595,17 @@ export default function App() {
                                         const recipe = RECIPES.find(r => r.id === recipeId);
                                         if (!recipe) return null;
                                         return (
-                                            <div key={idx} className="bg-gray-50 rounded p-1.5 border border-gray-100">
-                                                <div className="flex justify-between items-center mb-1">
-                                                    <span className="text-xs md:text-sm font-black text-slate-800 leading-none truncate pr-1">{recipe.name}</span>
-                                                    <span className="text-[8px] md:text-[10px] font-bold text-green-600 bg-green-100 px-1 rounded flex-shrink-0">+{recipe.reward}</span>
-                                                </div>
-                                                
-                                                {/* Clean Ingredient Tags */}
-                                                <div className="flex flex-wrap gap-1">
-                                                    {recipe.ingredients.map((ing, ingIdx) => {
-                                                        const def = CARDS[ing];
-                                                        if (!def) return null;
-                                                        const isTool = def.type === CardType.TOOL;
-                                                        return (
-                                                            <div key={ingIdx} className={`h-4 px-1 rounded-[3px] ${def.color} flex items-center justify-center border border-black/10`} title={def.name}>
-                                                                <span className={`text-[8px] font-bold leading-none text-black`}>
-                                                                    {def.name.substr(0,2)}
-                                                                </span>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
+                                            <div key={idx} className="flex justify-between items-center border-b border-dashed border-yellow-300 pb-1 last:border-0">
+                                                <span className="text-xs md:text-sm font-black text-slate-800 leading-none whitespace-normal pr-1">{recipe.name}</span>
+                                                <span className="text-[10px] md:text-xs font-bold text-green-700 whitespace-nowrap">+{recipe.reward}g</span>
                                             </div>
                                         )
                                     })}
                                 </div>
 
-                                {/* Footer */}
-                                <div className="mt-auto pt-2 border-t border-gray-100 text-center">
-                                    <span className="text-[10px] text-gray-400 italic">Thank you!</span>
+                                {/* Footer Text */}
+                                <div className="mt-auto pt-2 border-t border-yellow-300 text-center">
+                                    <span className="text-[10px] text-yellow-700 italic">Thank you!</span>
                                 </div>
                         </div>
                     );
@@ -611,18 +613,31 @@ export default function App() {
             </div>
         </div>
 
-        {/* --- Canvas --- */}
-        {gameState.stacks.map(stack => (
-            <CardStackComponent 
-                key={stack.id} 
-                stack={{
-                    ...stack,
-                    x: stack.x + pan.x, // Apply Camera Offset
-                    y: stack.y + pan.y  // Apply Camera Offset
-                }}
-                onPointerDown={handleCardPointerDown} 
-            />
-        ))}
+        {/* --- Canvas (Transformed World Container) --- */}
+        <div 
+            className="absolute inset-0 pointer-events-none origin-top-left transition-transform duration-75"
+            style={{
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`
+            }}
+        >
+            {gameState.stacks.map(stack => (
+                <CardStackComponent 
+                    key={stack.id} 
+                    stack={stack} // Pass World Coordinates directly
+                    onPointerDown={handleCardPointerDown} 
+                />
+            ))}
+        </div>
+
+        {/* --- Zoom Controls --- */}
+        <div className="absolute top-20 right-4 flex flex-col gap-2 z-40" onPointerDown={e => e.stopPropagation()}>
+            <button onClick={handleZoomIn} className="bg-white p-2 rounded-xl shadow-lg border-2 border-slate-200 text-slate-700 hover:bg-slate-50 active:scale-95 transition-all">
+                <ZoomIn size={24} />
+            </button>
+            <button onClick={handleZoomOut} className="bg-white p-2 rounded-xl shadow-lg border-2 border-slate-200 text-slate-700 hover:bg-slate-50 active:scale-95 transition-all">
+                <ZoomOut size={24} />
+            </button>
+        </div>
 
         {/* --- Notification --- */}
         {gameState.notification && (
@@ -633,18 +648,18 @@ export default function App() {
 
         {/* --- Bottom Dashboard / Kitchen Counter --- */}
         <div 
-            className="absolute bottom-0 left-0 w-full h-24 md:h-28 bg-white border-t-4 border-slate-200 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] flex items-center justify-between px-4 md:px-8 z-50"
+            className="absolute bottom-0 left-0 w-full h-24 md:h-28 bg-white border-t-4 border-slate-200 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] flex items-center justify-between px-2 md:px-8 z-50"
             onPointerDown={(e) => e.stopPropagation()} // Prevent pan when touching UI
         >
             
             {/* Left Controls */}
-            <div className="flex gap-2 md:gap-4 items-center">
+            <div className="flex gap-2 items-center">
                 <button 
                     onClick={() => setIsRecipeBookOpen(true)}
-                    className="flex flex-col items-center gap-1 text-slate-600 hover:text-blue-600 hover:scale-105 transition-all active:scale-95 group"
+                    className="flex flex-col items-center gap-1 text-slate-600 hover:text-amber-800 hover:scale-105 transition-all active:scale-95 group"
                 >
-                    <div className="bg-blue-100 p-2 md:p-3 rounded-2xl border-2 border-blue-200 group-hover:bg-blue-200 group-hover:border-blue-300 transition-colors">
-                        <BookOpen size={20} className="md:w-7 md:h-7 text-blue-600" />
+                    <div className="bg-amber-100 p-2 md:p-3 rounded-2xl border-2 border-amber-200 group-hover:bg-amber-200 group-hover:border-amber-400 transition-colors">
+                        <BookOpen size={20} className="md:w-7 md:h-7 text-amber-800" />
                     </div>
                     <span className="text-[10px] md:text-xs font-bold uppercase tracking-wider hidden md:block">Recipes</span>
                 </button>
@@ -661,16 +676,16 @@ export default function App() {
             </div>
 
             {/* Center Main Action - Two Pack Buttons */}
-            <div className="absolute left-1/2 -translate-x-1/2 -top-10 md:-top-12 flex gap-3 md:gap-4">
+            <div className="absolute left-1/2 -translate-x-1/2 -top-10 md:-top-12 flex gap-2 md:gap-4">
                 
                 {/* Plant Pack */}
                 <button 
                     onClick={() => buyPack(CardCategory.PLANT)}
-                    className="bg-gradient-to-b from-green-500 to-green-600 text-white w-16 h-16 md:w-20 md:h-20 rounded-full shadow-[0_8px_0_rgb(21,128,61),0_20px_20px_rgba(0,0,0,0.3)] border-4 border-white flex flex-col items-center justify-center gap-0 active:translate-y-2 active:shadow-none hover:brightness-110 transition-all group"
+                    className="bg-gradient-to-b from-green-500 to-green-600 text-white w-16 h-16 md:w-20 md:h-20 rounded-2xl shadow-[0_6px_0_rgb(21,128,61),0_15px_15px_rgba(0,0,0,0.3)] md:shadow-[0_8px_0_rgb(21,128,61),0_20px_20px_rgba(0,0,0,0.3)] border-4 border-white flex flex-col items-center justify-center gap-0 active:translate-y-2 active:shadow-none hover:brightness-110 transition-all group"
                 >
-                    <Leaf size={20} className="md:w-6 md:h-6 group-hover:rotate-12 transition-transform" />
-                    <span className="font-black text-[10px] md:text-xs uppercase mt-0.5">Plant</span>
-                    <div className="bg-black/20 px-1.5 py-0.5 rounded-full text-[8px] font-bold mt-0.5">
+                    <Leaf size={18} className="md:w-6 md:h-6 group-hover:rotate-12 transition-transform" />
+                    <span className="font-black text-[9px] md:text-xs uppercase mt-0.5">Plant</span>
+                    <div className="bg-black/20 px-1.5 py-0 rounded-full text-[8px] font-bold mt-0.5">
                         {CARD_PACK_COST}g
                     </div>
                 </button>
@@ -678,11 +693,11 @@ export default function App() {
                 {/* Animal Pack */}
                 <button 
                     onClick={() => buyPack(CardCategory.ANIMAL)}
-                    className="bg-gradient-to-b from-orange-500 to-orange-600 text-white w-16 h-16 md:w-20 md:h-20 rounded-full shadow-[0_8px_0_rgb(194,65,12),0_20px_20px_rgba(0,0,0,0.3)] border-4 border-white flex flex-col items-center justify-center gap-0 active:translate-y-2 active:shadow-none hover:brightness-110 transition-all group"
+                    className="bg-gradient-to-b from-orange-500 to-orange-600 text-white w-16 h-16 md:w-20 md:h-20 rounded-2xl shadow-[0_6px_0_rgb(194,65,12),0_15px_15px_rgba(0,0,0,0.3)] md:shadow-[0_8px_0_rgb(194,65,12),0_20px_20px_rgba(0,0,0,0.3)] border-4 border-white flex flex-col items-center justify-center gap-0 active:translate-y-2 active:shadow-none hover:brightness-110 transition-all group"
                 >
-                    <Drumstick size={20} className="md:w-6 md:h-6 group-hover:rotate-12 transition-transform" />
-                    <span className="font-black text-[10px] md:text-xs uppercase mt-0.5">Farm</span>
-                    <div className="bg-black/20 px-1.5 py-0.5 rounded-full text-[8px] font-bold mt-0.5">
+                    <Drumstick size={18} className="md:w-6 md:h-6 group-hover:rotate-12 transition-transform" />
+                    <span className="font-black text-[9px] md:text-xs uppercase mt-0.5">Farm</span>
+                    <div className="bg-black/20 px-1.5 py-0 rounded-full text-[8px] font-bold mt-0.5">
                         {CARD_PACK_COST}g
                     </div>
                 </button>
@@ -692,73 +707,89 @@ export default function App() {
             {/* Right: Sell Bin */}
             <div 
                 ref={sellBinRef}
-                className="w-32 md:w-48 h-16 md:h-20 border-2 border-dashed border-red-300 bg-red-50 rounded-xl flex items-center justify-center gap-2 md:gap-3 text-red-400 hover:bg-red-100 hover:border-red-400 hover:text-red-500 transition-colors group"
+                className="w-auto px-3 md:px-0 md:w-48 h-14 md:h-20 border-2 border-dashed border-red-300 bg-red-50 rounded-xl flex items-center justify-center gap-2 md:gap-3 text-red-400 hover:bg-red-100 hover:border-red-400 hover:text-red-500 transition-colors group"
             >
                 <div className="bg-red-200 p-1.5 md:p-2 rounded-full">
                     <Trash2 size={20} className="md:w-6 md:h-6 text-red-500" />
                 </div>
-                <div className="flex flex-col">
+                <div className="flex flex-col hidden md:flex">
                     <span className="font-bold text-xs md:text-sm uppercase tracking-wider">Sell Bin</span>
-                    <span className="text-[10px] md:text-xs opacity-70 hidden md:inline">Drag ingredients here</span>
+                    <span className="text-[10px] md:text-xs opacity-70">Drag items here</span>
                 </div>
+                {/* Mobile text */}
+                <span className="font-bold text-xs uppercase tracking-wider md:hidden">Sell</span>
             </div>
         </div>
 
-        {/* --- Recipe Modal --- */}
+        {/* --- Recipe Book (Cookbook) --- */}
         {isRecipeBookOpen && (
             <div 
                 className="absolute inset-0 bg-black/60 z-[100] flex items-center justify-center p-4"
                 onPointerDown={(e) => e.stopPropagation()}
             >
-                <div className="bg-white rounded-3xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-bounce-in border-4 border-slate-800">
-                    <div className="bg-blue-500 p-4 md:p-6 flex justify-between items-center text-white border-b-4 border-slate-800">
+                {/* Leather Book Container */}
+                <div className="bg-[#5D4037] rounded-r-3xl rounded-l-md w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-bounce-in border-4 border-[#3E2723] relative">
+                    {/* Spine Effect */}
+                    <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-[#3E2723] to-[#5D4037] z-20 border-r border-[#3E2723]/50"></div>
+                    
+                    {/* Header: Embossed Leather Look */}
+                    <div className="bg-[#4E342E] p-4 md:p-6 pl-12 flex justify-between items-center text-[#D7CCC8] border-b-4 border-[#3E2723] shadow-inner relative z-10">
                         <div className="flex items-center gap-3">
-                            <ChefHat size={28} className="md:w-8 md:h-8" />
-                            <h2 className="text-2xl md:text-3xl font-black">Cookbook</h2>
+                            <Bookmark size={28} className="md:w-8 md:h-8 text-[#FFB74D]" />
+                            <h2 className="text-2xl md:text-3xl font-serif font-black tracking-wider text-[#FFCC80] drop-shadow-md">The Cookbook</h2>
                         </div>
-                        <button onClick={() => setIsRecipeBookOpen(false)} className="bg-black/20 hover:bg-black/40 p-2 rounded-xl transition-colors">
+                        <button onClick={() => setIsRecipeBookOpen(false)} className="bg-[#3E2723]/50 hover:bg-[#3E2723] text-[#FFCC80] p-2 rounded-xl transition-colors border border-[#FFCC80]/20">
                             <X size={24} />
                         </button>
                     </div>
                     
-                    <div className="p-4 md:p-6 overflow-y-auto flex-1 bg-blue-50">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {RECIPES.map(recipe => {
-                                const isUnlocked = gameState.level >= recipe.requiredLevel;
-                                return (
-                                    <div key={recipe.id} className={`border-2 rounded-xl p-4 shadow-sm relative overflow-hidden ${isUnlocked ? 'border-slate-800 bg-white' : 'border-gray-300 bg-gray-100'}`}>
-                                        {!isUnlocked && (
-                                            <div className="absolute inset-0 bg-gray-200/50 flex items-center justify-center z-10 backdrop-blur-[1px]">
-                                                <div className="bg-slate-800 text-gray px-4 py-2 rounded-lg font-bold shadow-lg transform -rotate-3">
-                                                    Unlocks Lvl {recipe.requiredLevel}
+                    {/* Pages Area (Parchment) */}
+                    <div className="flex-1 bg-[#FDF6E3] relative overflow-hidden flex flex-col pl-10">
+                        {/* Page Texture Overlay */}
+                        <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'url("https://www.transparenttextures.com/patterns/cream-paper.png")' }}></div>
+                        
+                        <div className="p-6 md:p-8 overflow-y-auto flex-1 z-10">
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {RECIPES.map(recipe => {
+                                    const isUnlocked = gameState.level >= recipe.requiredLevel;
+                                    return (
+                                        <div key={recipe.id} className={`relative p-4 rounded-sm shadow-sm transition-all group ${isUnlocked ? 'bg-[#FFFEF7] border border-[#D7CCC8] rotate-0 hover:rotate-1' : 'bg-gray-100 border border-gray-300 opacity-70 grayscale'}`}>
+                                            {/* Push Pin */}
+                                            {isUnlocked && <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-red-800 shadow-sm z-20"></div>}
+
+                                            {!isUnlocked && (
+                                                <div className="absolute inset-0 bg-gray-200/40 flex items-center justify-center z-10 backdrop-blur-[1px]">
+                                                    <div className="bg-[#3E2723] text-[#FFCC80] px-3 py-1 rounded font-serif font-bold shadow-lg transform -rotate-3 text-sm">
+                                                        Lvl {recipe.requiredLevel}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            
+                                            <div className="flex justify-between items-start mb-2 border-b border-[#D7CCC8] pb-2 border-dashed">
+                                                <h3 className="font-serif font-bold text-xl text-[#3E2723] leading-tight w-2/3">{recipe.name}</h3>
+                                                <div className="flex flex-col items-end">
+                                                    <span className="text-xs font-bold text-[#2E7D32]">+{recipe.reward}g</span>
+                                                    <span className="text-[10px] font-bold text-[#1565C0]">+{recipe.xp}xp</span>
                                                 </div>
                                             </div>
-                                        )}
-                                        
-                                        <div className="flex justify-between items-start mb-3">
-                                            <h3 className="font-bold text-lg md:text-xl text-slate-800">{recipe.name}</h3>
-                                            <div className="flex flex-col items-end">
-                                                <span className="text-[10px] md:text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-md mb-1">+{recipe.reward} Coins</span>
-                                                <span className="text-[10px] md:text-xs font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-md">+{recipe.xp} XP</span>
+                                            
+                                            <div className="mt-2 flex flex-wrap gap-2 items-center">
+                                                {recipe.ingredients.map((ingId, idx) => {
+                                                    const def = CARDS[ingId];
+                                                    return (
+                                                        <div key={idx} className="flex items-center">
+                                                            <div className={`px-2 py-0.5 rounded text-[10px] font-bold text-[#3E2723] border border-[#8D6E63]/30 bg-[#EFEBE9]`}>
+                                                                {def.name}
+                                                            </div>
+                                                            {idx < recipe.ingredients.length - 1 && <span className="text-[#8D6E63] mx-1 text-xs">+</span>}
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         </div>
-                                        
-                                        <div className="bg-gray-50 rounded-lg p-2 flex flex-wrap gap-2 items-center min-h-[48px]">
-                                            {recipe.ingredients.map((ingId, idx) => {
-                                                const def = CARDS[ingId];
-                                                return (
-                                                    <div key={idx} className="flex items-center">
-                                                        <div className={`px-2 py-1 rounded-md text-[10px] md:text-xs font-bold text-black shadow-sm ${def.color} border border-black/10`}>
-                                                            {def.name}
-                                                        </div>
-                                                        {idx < recipe.ingredients.length - 1 && <ArrowRight size={12} className="text-gray-400 mx-1" />}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                                    );
+                                })}
+                            </div>
                         </div>
                     </div>
                 </div>
