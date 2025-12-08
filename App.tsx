@@ -630,7 +630,7 @@ export default function App() {
         </div>
 
         {/* --- Zoom Controls --- */}
-        <div className="absolute bottom-[120] right-4 flex flex-col gap-2 z-40" onPointerDown={e => e.stopPropagation()}>
+        <div className="absolute bottom-[130] right-4 flex flex-col gap-2 z-40" onPointerDown={e => e.stopPropagation()}>
             <button onClick={handleZoomIn} className="bg-white p-2 rounded-xl shadow-lg border-2 border-slate-200 text-slate-700 hover:bg-slate-50 active:scale-95 transition-all">
                 <ZoomIn size={24} />
             </button>
