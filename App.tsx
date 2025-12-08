@@ -91,6 +91,32 @@ export default function App() {
   const handleZoomIn = () => setZoom(prev => Math.min(prev + 0.1, 2.0));
   const handleZoomOut = () => setZoom(prev => Math.max(prev - 0.1, 0.5));
 
+  const handleWheel = (e: React.WheelEvent) => {
+    // Zoom towards mouse cursor
+    const zoomSensitivity = 0.1;
+    const delta = -Math.sign(e.deltaY) * zoomSensitivity;
+    
+    const newZoom = Math.min(Math.max(zoom + delta, 0.5), 2.0);
+    
+    if (newZoom !== zoom) {
+        // Calculate new Pan to keep the point under mouse stationary
+        // WorldPoint = (ScreenPoint - Pan) / Zoom
+        // We want WorldPoint to stay same, ScreenPoint (mouse) stays same.
+        // (Mouse - OldPan) / OldZoom = (Mouse - NewPan) / NewZoom
+        // Mouse - NewPan = (Mouse - OldPan) * (NewZoom / OldZoom)
+        // NewPan = Mouse - (Mouse - OldPan) * (NewZoom / OldZoom)
+        
+        const mouseX = e.clientX;
+        const mouseY = e.clientY;
+        
+        const newPanX = mouseX - (mouseX - pan.x) * (newZoom / zoom);
+        const newPanY = mouseY - (mouseY - pan.y) * (newZoom / zoom);
+        
+        setPan({ x: newPanX, y: newPanY });
+        setZoom(newZoom);
+    }
+  };
+
   // --- Game Loop ---
   useEffect(() => {
     const interval = setInterval(() => {
@@ -506,6 +532,7 @@ export default function App() {
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerUp}
+      onWheel={handleWheel}
     >
         {/* Kitchen Tile Background - Moves with Pan and Scales with Zoom */}
         <div 
@@ -630,7 +657,7 @@ export default function App() {
         </div>
 
         {/* --- Zoom Controls --- */}
-        <div className="absolute bottom-[130] right-4 flex flex-col gap-2 z-40" onPointerDown={e => e.stopPropagation()}>
+        <div className="absolute bottom-36 right-4 flex flex-col gap-2 z-40" onPointerDown={e => e.stopPropagation()}>
             <button onClick={handleZoomIn} className="bg-white p-2 rounded-xl shadow-lg border-2 border-slate-200 text-slate-700 hover:bg-slate-50 active:scale-95 transition-all">
                 <ZoomIn size={24} />
             </button>
