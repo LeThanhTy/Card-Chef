@@ -45,6 +45,10 @@ export interface Recipe {
   ingredients: string[]; // Order matters: Bottom -> Top
   reward: number;
   xp: number;
+  // New fields for Cookbook
+  description: string;
+  difficulty: 'Easy' | 'Medium' | 'Hard' | 'Expert';
+  steps: string[];
 }
 
 export interface Customer {

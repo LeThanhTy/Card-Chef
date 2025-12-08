@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 
 // Icon Map
-const ICON_MAP: Record<string, LucideIcon> = {
+export const ICON_MAP: Record<string, LucideIcon> = {
   'Square': Utensils, // Board generic
   'Sword': Sword, // Knife
   'CircleDot': CircleDot, // Pan

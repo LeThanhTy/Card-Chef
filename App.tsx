@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ShoppingBag, BookOpen, Star, ChefHat, Coins, User, Hammer, X, Clock, Receipt, Trash2, ArrowRight, XCircle, Leaf, Drumstick, Bookmark, ZoomIn, ZoomOut } from 'lucide-react';
+import { ShoppingBag, BookOpen, Star, ChefHat, Coins, User, Hammer, X, Clock, Receipt, Trash2, ArrowRight, XCircle, Leaf, Drumstick, Bookmark, ZoomIn, ZoomOut, CheckCircle, ClipboardList, AlertCircle, HelpCircle } from 'lucide-react';
 import { 
   GameState, CardStack, GameCard, CardType, Recipe, Customer, CardCategory 
 } from './types';
 import { 
   CARDS, RECIPES, INITIAL_GAME_STATE, CARD_PACK_COST, XP_BASE, TOOL_PRICES, TOOL_UNLOCK_LEVELS, INGREDIENT_SELL_VALUE 
 } from './constants';
-import { CardStackComponent } from './components/CardStackComponent';
+import { CardStackComponent, ICON_MAP } from './components/CardStackComponent';
 
 // --- Helper Functions ---
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -58,6 +58,7 @@ const checkRecipeMatch = (stack: GameCard[], unlockedRecipes: string[]): Recipe 
 export default function App() {
   const [gameState, setGameState] = useState<GameState>(INITIAL_GAME_STATE);
   const [isRecipeBookOpen, setIsRecipeBookOpen] = useState(false);
+  const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null); // For detail view
   const [isToolShopOpen, setIsToolShopOpen] = useState(false);
   
   // Camera Pan & Zoom State
@@ -87,6 +88,13 @@ export default function App() {
       initialPanY: 0
   });
 
+  // Default select first recipe when book opens
+  useEffect(() => {
+    if (isRecipeBookOpen && !selectedRecipeId && RECIPES.length > 0) {
+        setSelectedRecipeId(RECIPES[0].id);
+    }
+  }, [isRecipeBookOpen]);
+
   // --- Zoom Controls ---
   const handleZoomIn = () => setZoom(prev => Math.min(prev + 0.1, 2.0));
   const handleZoomOut = () => setZoom(prev => Math.max(prev - 0.1, 0.5));
@@ -100,12 +108,6 @@ export default function App() {
     
     if (newZoom !== zoom) {
         // Calculate new Pan to keep the point under mouse stationary
-        // WorldPoint = (ScreenPoint - Pan) / Zoom
-        // We want WorldPoint to stay same, ScreenPoint (mouse) stays same.
-        // (Mouse - OldPan) / OldZoom = (Mouse - NewPan) / NewZoom
-        // Mouse - NewPan = (Mouse - OldPan) * (NewZoom / OldZoom)
-        // NewPan = Mouse - (Mouse - OldPan) * (NewZoom / OldZoom)
-        
         const mouseX = e.clientX;
         const mouseY = e.clientY;
         
@@ -525,6 +527,105 @@ export default function App() {
     }));
   };
 
+  // --- Render Components ---
+
+  const renderRecipeDetail = () => {
+      const recipe = RECIPES.find(r => r.id === selectedRecipeId);
+      if (!recipe) return <div className="text-gray-500 italic p-10 text-center">Select a recipe...</div>;
+      
+      const isUnlocked = gameState.level >= recipe.requiredLevel;
+
+      // Determine an icon to show (Use the first ingredient's icon for now, or a default)
+      // Ideally we would map recipe ID to specific Lucide icons.
+      // Let's grab the icon of the FIRST ingredient as a "Main" icon.
+      const mainIngId = recipe.ingredients[recipe.ingredients.length-1]; // Use top ingredient as visual
+      const mainIngDef = CARDS[mainIngId];
+      const MainIcon = mainIngDef ? (ICON_MAP[mainIngDef.iconName] || HelpCircle) : HelpCircle;
+
+      return (
+          <div className="flex flex-col h-full bg-white relative paper-texture rounded-sm shadow-sm overflow-y-auto">
+             {/* Clipboard Clip Graphic at top */}
+             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 md:w-32 h-6 md:h-8 bg-gray-300 rounded-b-xl border-b-4 border-gray-400 z-20 flex justify-center shadow-md">
+                 <div className="w-16 md:w-24 h-3 md:h-4 bg-gray-400 rounded-b-lg mt-1"></div>
+             </div>
+
+             <div className="p-4 md:p-8 pt-10 md:pt-12 flex flex-col gap-4 md:gap-6">
+                 {/* Header Section */}
+                 <div className="flex items-start justify-between border-b-2 border-slate-800 pb-2 md:pb-4 border-dashed">
+                     <div className="flex flex-col">
+                        <h2 className="text-2xl md:text-3xl font-black text-slate-900 font-serif tracking-tight leading-none mb-1 md:mb-2">{recipe.name}</h2>
+                        <div className="flex items-center gap-2">
+                             <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider text-white ${
+                                 recipe.difficulty === 'Easy' ? 'bg-green-500' :
+                                 recipe.difficulty === 'Medium' ? 'bg-yellow-500' :
+                                 recipe.difficulty === 'Hard' ? 'bg-orange-500' : 'bg-red-600'
+                             }`}>
+                                 {recipe.difficulty}
+                             </span>
+                             {!isUnlocked && <span className="text-red-600 text-xs font-bold bg-red-100 px-2 py-0.5 rounded">Lvl {recipe.requiredLevel} Required</span>}
+                        </div>
+                     </div>
+                     <div className="w-12 h-12 md:w-16 md:h-16 bg-slate-100 rounded-full border-2 border-slate-300 flex items-center justify-center shadow-inner shrink-0">
+                         <MainIcon size={24} className="md:w-8 md:h-8 text-slate-700" />
+                     </div>
+                 </div>
+
+                 {/* Description */}
+                 <div className="italic text-slate-600 font-serif text-sm bg-yellow-50 p-3 border-l-4 border-yellow-300">
+                     "{recipe.description}"
+                 </div>
+
+                 {/* Ingredients List */}
+                 <div>
+                     <h3 className="font-bold text-sm uppercase text-slate-500 tracking-wider mb-2 flex items-center gap-2">
+                         <ShoppingBag size={14}/> Ingredients
+                     </h3>
+                     <div className="grid grid-cols-2 gap-2">
+                         {recipe.ingredients.map((ingId, idx) => {
+                             const def = CARDS[ingId];
+                             return (
+                                 <div key={idx} className="flex items-center gap-2 text-sm text-slate-800 bg-slate-50 p-2 rounded border border-slate-200">
+                                     <div className={`w-2 h-2 rounded-full ${def.color}`}></div>
+                                     <span className="font-medium">{def.name}</span>
+                                 </div>
+                             )
+                         })}
+                     </div>
+                 </div>
+
+                 {/* Steps Section */}
+                 <div>
+                    <h3 className="font-bold text-sm uppercase text-slate-500 tracking-wider mb-2 flex items-center gap-2">
+                         <ClipboardList size={14}/> Instructions
+                     </h3>
+                     <div className="space-y-3">
+                         {recipe.steps?.map((step, idx) => (
+                             <div key={idx} className="flex gap-3">
+                                 <div className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-800 text-white flex items-center justify-center text-xs font-bold shadow-sm">
+                                     {idx + 1}
+                                 </div>
+                                 <p className="text-sm text-slate-700 leading-snug pt-0.5 font-serif">{step}</p>
+                             </div>
+                         ))}
+                     </div>
+                 </div>
+
+                 {/* Footer Rewards */}
+                 <div className="mt-auto pt-4 md:pt-6 border-t-2 border-slate-200 flex justify-end gap-4">
+                     <div className="flex flex-col items-end">
+                         <span className="text-[10px] font-bold uppercase text-slate-400">Reward</span>
+                         <span className="text-lg font-black text-green-600 flex items-center gap-1"><Coins size={16}/> {recipe.reward}g</span>
+                     </div>
+                     <div className="flex flex-col items-end">
+                         <span className="text-[10px] font-bold uppercase text-slate-400">XP</span>
+                         <span className="text-lg font-black text-blue-600 flex items-center gap-1"><Star size={16}/> {recipe.xp}</span>
+                     </div>
+                 </div>
+             </div>
+          </div>
+      );
+  };
+
   return (
     <div 
       className="w-screen h-screen bg-stone-100 overflow-hidden relative select-none font-sans"
@@ -751,72 +852,59 @@ export default function App() {
         {/* --- Recipe Book (Cookbook) --- */}
         {isRecipeBookOpen && (
             <div 
-                className="absolute inset-0 bg-black/60 z-[100] flex items-center justify-center p-4"
+                className="absolute inset-0 bg-slate-900/60 z-[100] flex items-center justify-center p-2 md:p-4 backdrop-blur-sm"
                 onPointerDown={(e) => e.stopPropagation()}
             >
-                {/* Leather Book Container */}
-                <div className="bg-[#5D4037] rounded-r-3xl rounded-l-md w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-bounce-in border-4 border-[#3E2723] relative">
-                    {/* Spine Effect */}
-                    <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-[#3E2723] to-[#5D4037] z-20 border-r border-[#3E2723]/50"></div>
+                {/* Clipboard Binder Container - Responsive Layout */}
+                <div className="bg-[#8D6E63] rounded-md w-full max-w-5xl h-[95vh] md:h-[85vh] flex flex-col md:flex-row shadow-2xl overflow-hidden animate-bounce-in border-4 md:border-8 border-[#5D4037] relative">
                     
-                    {/* Header: Embossed Leather Look */}
-                    <div className="bg-[#4E342E] p-4 md:p-6 pl-12 flex justify-between items-center text-[#D7CCC8] border-b-4 border-[#3E2723] shadow-inner relative z-10">
-                        <div className="flex items-center gap-3">
-                            <Bookmark size={28} className="md:w-8 md:h-8 text-[#FFB74D]" />
-                            <h2 className="text-2xl md:text-3xl font-serif font-black tracking-wider text-[#FFCC80] drop-shadow-md">The Cookbook</h2>
+                    {/* Left Sidebar: Recipe Tabs */}
+                    <div className="w-full md:w-1/4 h-1/3 md:h-full bg-[#D7CCC8] border-b-4 md:border-b-0 md:border-r-4 border-[#A1887F] flex flex-col relative overflow-hidden shrink-0">
+                        <div className="p-2 md:p-4 bg-[#8D6E63] text-white shadow-md z-10">
+                            <h2 className="text-lg md:text-xl font-black uppercase tracking-widest text-center flex items-center justify-center gap-2">
+                                <Bookmark size={20}/> Index
+                            </h2>
                         </div>
-                        <button onClick={() => setIsRecipeBookOpen(false)} className="bg-[#3E2723]/50 hover:bg-[#3E2723] text-[#FFCC80] p-2 rounded-xl transition-colors border border-[#FFCC80]/20">
-                            <X size={24} />
-                        </button>
-                    </div>
-                    
-                    {/* Pages Area (Parchment) */}
-                    <div className="flex-1 bg-[#FDF6E3] relative overflow-hidden flex flex-col pl-10">
-                        {/* Page Texture Overlay */}
-                        <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'url("https://www.transparenttextures.com/patterns/cream-paper.png")' }}></div>
                         
-                        <div className="p-6 md:p-8 overflow-y-auto flex-1 z-10">
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {RECIPES.map(recipe => {
-                                    const isUnlocked = gameState.level >= recipe.requiredLevel;
-                                    return (
-                                        <div key={recipe.id} className={`relative p-4 rounded-sm shadow-sm transition-all group ${isUnlocked ? 'bg-[#FFFEF7] border border-[#D7CCC8] rotate-0 hover:rotate-1' : 'bg-gray-100 border border-gray-300 opacity-70 grayscale'}`}>
-                                            {/* Push Pin */}
-                                            {isUnlocked && <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-red-800 shadow-sm z-20"></div>}
-
-                                            {!isUnlocked && (
-                                                <div className="absolute inset-0 bg-gray-200/40 flex items-center justify-center z-10 backdrop-blur-[1px]">
-                                                    <div className="bg-[#3E2723] text-[#FFCC80] px-3 py-1 rounded font-serif font-bold shadow-lg transform -rotate-3 text-sm">
-                                                        Lvl {recipe.requiredLevel}
-                                                    </div>
-                                                </div>
+                        <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
+                            {RECIPES.map(recipe => {
+                                const isUnlocked = gameState.level >= recipe.requiredLevel;
+                                const isSelected = selectedRecipeId === recipe.id;
+                                return (
+                                    <button 
+                                        key={recipe.id}
+                                        onClick={() => setSelectedRecipeId(recipe.id)}
+                                        className={`w-full text-left p-2 md:p-3 rounded-lg transition-all border-l-4 flex flex-col relative group ${
+                                            isSelected 
+                                            ? 'bg-white border-amber-500 shadow-md translate-x-1' 
+                                            : 'bg-[#EFEBE9] border-transparent hover:bg-white hover:border-amber-300'
+                                        }`}
+                                    >
+                                        <div className="flex justify-between items-center">
+                                            <span className={`font-bold text-xs md:text-sm ${isSelected ? 'text-slate-900' : 'text-slate-600'}`}>{recipe.name}</span>
+                                            {isUnlocked ? (
+                                                <CheckCircle size={14} className="text-green-500" />
+                                            ) : (
+                                                <span className="text-[10px] font-bold text-red-400 bg-red-50 px-1 rounded">Lvl {recipe.requiredLevel}</span>
                                             )}
-                                            
-                                            <div className="flex justify-between items-start mb-2 border-b border-[#D7CCC8] pb-2 border-dashed">
-                                                <h3 className="font-serif font-bold text-xl text-[#3E2723] leading-tight w-2/3">{recipe.name}</h3>
-                                                <div className="flex flex-col items-end">
-                                                    <span className="text-xs font-bold text-[#2E7D32]">+{recipe.reward}g</span>
-                                                    <span className="text-[10px] font-bold text-[#1565C0]">+{recipe.xp}xp</span>
-                                                </div>
-                                            </div>
-                                            
-                                            <div className="mt-2 flex flex-wrap gap-2 items-center">
-                                                {recipe.ingredients.map((ingId, idx) => {
-                                                    const def = CARDS[ingId];
-                                                    return (
-                                                        <div key={idx} className="flex items-center">
-                                                            <div className={`px-2 py-0.5 rounded text-[10px] font-bold text-[#3E2723] border border-[#8D6E63]/30 bg-[#EFEBE9]`}>
-                                                                {def.name}
-                                                            </div>
-                                                            {idx < recipe.ingredients.length - 1 && <span className="text-[#8D6E63] mx-1 text-xs">+</span>}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
                                         </div>
-                                    );
-                                })}
-                            </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Right Main Area: The Cooking Sheet */}
+                    <div className="flex-1 bg-[#4E342E] relative p-2 md:p-4 lg:p-8 flex items-center justify-center shadow-inner overflow-hidden">
+                        <div className="absolute top-2 right-2 md:top-4 md:right-4 z-50">
+                             <button onClick={() => setIsRecipeBookOpen(false)} className="bg-slate-900/50 hover:bg-slate-900 text-white p-1.5 md:p-2 rounded-full transition-colors border border-white/20">
+                                <X size={20} className="md:w-6 md:h-6" />
+                            </button>
+                        </div>
+                        
+                        {/* The Actual Sheet Paper */}
+                        <div className="w-full h-full max-w-2xl transform transition-all duration-300">
+                           {renderRecipeDetail()}
                         </div>
                     </div>
                 </div>
